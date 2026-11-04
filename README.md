@@ -103,5 +103,19 @@ select net.http_post(
 -- then: select content::jsonb from net._http_response order by id desc limit 1;
 ```
 
-If Supabase ever pauses the project (free plan, long inactivity), restore it in the dashboard;
-the bot continues where it left off.
+## Does it run 24/7?
+
+Yes. It runs on Supabase's servers, not on your phone or computer, so nothing needs to stay open.
+
+- **Free plan pausing:** Supabase pauses free projects that have little database activity for a
+  week. The bot talks to its database every minute, far more than the "few requests a day" that
+  keeps a project awake. If Supabase ever plans a pause anyway, it emails the owner about a week
+  before; opening the project in the dashboard is enough to keep it running. A paused project can be
+  restored with one click (data is kept for 90 days). Only the paid Pro plan rules out pausing.
+- **Limits:** the every-minute job uses about 43,000 of the 500,000 free Edge Function calls per
+  month, and the data takes a few MB of the 500 MB database. A daily job
+  (`…_reminder_bot_cron_cleanup.sql`) keeps the pg_cron history at one week, so it never fills up.
+- **Outages:** if Supabase or Telegram is down at reminder time, the reminder is sent as soon as
+  they are back (on the next minute), not lost.
+- **Token:** if you revoke or regenerate the token in @BotFather, put the new one into the
+  `BOT_TOKEN` secret; the bot reconnects within a minute.
