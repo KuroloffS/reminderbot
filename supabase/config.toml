@@ -1,0 +1,9 @@
+# Supabase CLI settings for this project (only what differs from the defaults).
+# Deploy the function by hand with:
+#   supabase functions deploy reminder-bot --project-ref qfvbheevwgvaxhsshdwy
+project_id = "german-lesson-reminder"
+
+[functions.reminder-bot]
+# Telegram and pg_cron cannot send a Supabase JWT; the function checks its own secrets instead.
+verify_jwt = false
+import_map = "./functions/reminder-bot/deno.json"
