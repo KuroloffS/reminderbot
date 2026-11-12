@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B2048"/><stop offset="0.55" stop-color="#0E1027"/><stop offset="1" stop-color="#0A0B1C"/></linearGradient>
+<radialGradient id="warm" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#FF7A1A" stop-opacity="0.55"/><stop offset="0.25" stop-color="#FF7A1A" stop-opacity="0.4"/><stop offset="0.5" stop-color="#FF7A1A" stop-opacity="0.2"/><stop offset="0.75" stop-color="#FF7A1A" stop-opacity="0.055"/><stop offset="1" stop-color="#FF7A1A" stop-opacity="0"/></radialGradient>
+<linearGradient id="flame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#FF5B1F"/><stop offset="0.55" stop-color="#FF9A1F"/><stop offset="1" stop-color="#FFD23F"/></linearGradient>
+<linearGradient id="flameIn" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#FFD23F"/><stop offset="1" stop-color="#FFF3B0"/></linearGradient>
+<clipPath id="flag"><rect x="236" y="528" width="168" height="36" rx="18"/></clipPath>
+</defs>
+<rect width="640" height="640" fill="url(#bg)"/>
+<circle cx="320" cy="300" r="330" fill="url(#warm)"/>
+<g transform="translate(155 66) scale(3.3)">
+<path d="M52 0 C56 22 88 42 88 80 C88 106 71 124 50 124 C29 124 12 106 12 80 C12 62 21 50 28 40 C30 52 36 58 42 58 C36 38 42 16 52 0 Z" fill="url(#flame)"/>
+<path d="M51 60 C54 74 70 82 70 98 C70 111 61 118 50 118 C39 118 30 111 30 98 C30 88 36 82 40 76 C42 84 46 86 48 86 C46 76 48 68 51 60 Z" fill="url(#flameIn)"/>
+</g>
+<g clip-path="url(#flag)"><rect x="236" y="528" width="168" height="12" fill="#000000"/><rect x="236" y="540" width="168" height="12" fill="#DD0000"/><rect x="236" y="552" width="168" height="12" fill="#FFCE00"/></g>
+<rect x="236" y="528" width="168" height="36" rx="18" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+</svg>

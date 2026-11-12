@@ -20,14 +20,27 @@ Interface languages: **Russian** and **German** (switch any time in `/settings`)
 3. On each of those days, at your reminder time (default **09:00 Tashkent**), you get one message
    with everything to repeat, with buttons ✅ (done), ✅ all, ⏰ tomorrow.
 4. At **21:00**, if nothing was logged that day, the bot asks what you studied (can be switched off).
-5. On **Sunday at 20:00** you get a weekly summary. `/stats` shows your streak 🔥.
+5. On **Sunday at 20:00** you get a weekly summary as a picture (a chart of your week).
+
+And a few things that make it fun:
+
+- **Picture cards.** `/stats` answers with an image: your streak 🔥, a 5-week activity calendar and
+  your totals. The Sunday summary and `/week` are images too.
+- **Badges.** 19 of them, for streaks (3, 7, 14, 30, 60, 100 days), topics, reviews and mastered
+  topics (a topic is mastered when its last review is done). `/awards` shows them with the progress
+  to the next one. A new badge arrives with Telegram's full-screen confetti or fire animation.
+- **Reactions.** The bot reacts 🔥 to a note about today (✍ for older days), and 🎉 when you finish
+  all reviews of a reminder.
+- **Colors.** The main buttons are green, delete is red, the current setting is blue (in Telegram
+  apps from 2026 on; older apps show normal buttons).
 
 | Command | What it does |
 | --- | --- |
 | `/today` | What to repeat today |
 | `/list` | Your latest entries (`/del_<id>` deletes one) |
-| `/stats` | Streak, totals, what is coming |
-| `/week` | Summary of the last 7 days |
+| `/stats` | Progress card: streak, activity calendar, totals |
+| `/awards` | Your badges and the way to the next ones |
+| `/week` | The last 7 days as a chart |
 | `/settings` | Language, reminder time, time zone, intervals, evening question, weekly summary |
 | `/time 8:30` · `/tz Berlin` · `/tz +5` · `/intervals 1 3 7` · `/evening off` | Shortcuts for settings |
 | `/help` | How it works |
@@ -71,7 +84,17 @@ pg_cron (every minute) ─────┘  ?action=tick → morning reminders, e
   Telegram requests are checked with a webhook secret derived from `BOT_TOKEN`.
   - `lib/parse.ts`: reading notes and dates, `lib/schedule.ts`: the review plan,
     `lib/bot.ts`: commands and buttons, `lib/tick.ts`: scheduled messages,
-    `lib/render.ts` + `lib/i18n.ts`: all texts (Russian/German).
+    `lib/render.ts` + `lib/i18n.ts`: all texts (Russian/German), `lib/badges.ts`: the badges.
+  - `lib/cards.ts` draws the picture cards as SVG and `lib/raster.ts` turns them into PNG with
+    [resvg](https://github.com/yisibl/resvg-js) (WebAssembly). The renderer and the Onest font are
+    downloaded from the npm CDN the first time a worker draws a card and checked against fixed
+    SHA-256 sums.
+- `supabase/migrations/…_wow_pack.sql`: activity per day (for the calendar), badge storage,
+  mastered topics.
+
+Nothing decorative can lose a message: if a picture cannot be drawn, the same content is sent as
+text; if Telegram rejects an effect or a button color, the message is sent again without it;
+a failed reaction is ignored (`tgSafe` in `lib/telegram.ts`, `sendCard` in `lib/send.ts`).
 
 Each reminder is sent once on its day. Reviews you do not mark ✅ are not repeated; the next
 interval still comes. ⏰ moves the rest of a reminder to tomorrow. New intervals apply to new entries.
@@ -82,7 +105,15 @@ interval still comes. ⏰ moves the rest of a reminder to tomorrow. New interval
 scripts/local-db.sh start   # throwaway local Postgres on port 54329
 deno task test              # unit tests + full conversations with a fake Telegram
 deno task check             # type-check the Edge Function
+deno task cards out/        # draw sample cards (and the avatar) as PNG files to look at
 ```
+
+When the command list changes, bump `MENU_VERSION` (`lib/i18n.ts`) and `SETUP_VERSION`
+(`lib/setup.ts`), so Telegram gets the new menu. Badge codes are stored in the database: add new
+badges freely, but never rename existing codes.
+
+`assets/bot-avatar.svg` is a matching profile picture; `deno task cards` renders it to PNG, and
+@BotFather's `/setuserpic` sets it.
 
 Deploy changes with the Supabase CLI:
 
@@ -102,6 +133,8 @@ select net.http_post(
             "text": "Lektion 1"}}}]}'::jsonb);
 -- then: select content::jsonb from net._http_response order by id desc limit 1;
 ```
+
+Picture cards are really drawn in a simulation; add `"files": true` to get them back as base64.
 
 ## Does it run 24/7?
 

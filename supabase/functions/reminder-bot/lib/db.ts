@@ -1,5 +1,6 @@
 // Data access: every operation is one call of a bot_* SQL function (see supabase/migrations).
 // The transport is injected: PostgREST RPC in the Edge Function, node-postgres in the tests.
+import type { DayActivity } from './cards.ts';
 import type { Lang } from './i18n.ts';
 import type { Ymd } from './dates.ts';
 
@@ -28,6 +29,7 @@ export type User = {
   onboarded: boolean;
   pending: string | null;
   is_active: boolean;
+  menu_version: number;
   local_date: Ymd;
   local_time: string;
   local_dow: number;
@@ -43,6 +45,7 @@ export type UserPatch = Partial<{
   weekly_enabled: boolean;
   onboarded: boolean;
   pending: string | null;
+  menu_version: number;
 }>;
 
 export type NewEntry = { studied_on: Ymd; content: string; due_dates: Ymd[] };
@@ -69,6 +72,10 @@ export type Stats = Streak & {
   reviews_today: number;
   reviews_upcoming: number;
   next_due: Ymd | null;
+  /** Topics whose last scheduled review is done. */
+  mastered: number;
+  /** Badge codes the user was already congratulated on. */
+  achievements: string[];
 };
 
 export type WeekSummary = Streak & {
@@ -85,7 +92,7 @@ export type ListItem = { id: number; studied_on: Ymd; content: string; total: nu
 export type TickClaim = {
   digests: { chat_id: number; lang: Lang; review_ids: number[] }[];
   nudges: { chat_id: number; lang: Lang }[];
-  weekly: { chat_id: number; lang: Lang; summary: WeekSummary }[];
+  weekly: { chat_id: number; lang: Lang; first_name?: string | null; summary: WeekSummary; activity?: DayActivity[] }[];
 };
 
 const iso = (d: Date) => d.toISOString();
@@ -158,6 +165,12 @@ export function createDb(call: Call) {
     stats: (chatId: number, now: Date): Promise<Stats> => call('bot_stats', { p_chat_id: chatId, p_now: iso(now) }),
     weekSummary: (chatId: number, now: Date): Promise<WeekSummary> =>
       call('bot_week_summary', { p_chat_id: chatId, p_now: iso(now) }),
+    /** Topics studied and reviews done per local day, for the last `days` days. */
+    activity: (chatId: number, days: number, now: Date): Promise<DayActivity[]> =>
+      call('bot_activity', { p_chat_id: chatId, p_days: days, p_now: iso(now) }),
+    /** Records badges as given; `new` holds the ones that were not recorded before. */
+    claimAchievements: (chatId: number, codes: string[]): Promise<{ new: string[]; all: string[] }> =>
+      call('bot_claim_achievements', { p_chat_id: chatId, p_codes: codes }),
 
     tickClaim: (now: Date, test: boolean): Promise<TickClaim> => call('bot_tick_claim', { p_now: iso(now), p_test: test }),
     releaseClaim: (chatId: number, kind: 'digest' | 'nudge' | 'weekly') =>

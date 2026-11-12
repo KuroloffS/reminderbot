@@ -12,11 +12,12 @@
 import { createClient } from '@supabase/supabase-js';
 import { handleUpdate } from './lib/bot.ts';
 import { type Call, createDb, DbError } from './lib/db.ts';
+import { renderPng } from './lib/raster.ts';
 import { ensureWebhook } from './lib/setup.ts';
 import { createFakeTg, createTg, type Tg } from './lib/telegram.ts';
 import { runTick } from './lib/tick.ts';
 
-const VERSION = '2026-11-04.1';
+const VERSION = '2026-11-12.1';
 const FUNCTION_NAME = 'reminder-bot';
 const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/+$/, '');
 const WEBHOOK_URL = `${SUPABASE_URL}/functions/v1/${FUNCTION_NAME}`;
@@ -99,7 +100,7 @@ async function tick() {
       console.error('Webhook setup failed:', e);
     }
     try {
-      out.sent = await runTick({ db, tg: l.tg, now: () => new Date() }, { test: false });
+      out.sent = await runTick({ db, tg: l.tg, now: () => new Date(), render: renderPng }, { test: false });
     } catch (e) {
       out.ok = false;
       out.tick_error = errorText(e);
@@ -124,18 +125,19 @@ function chatOf(update: any): number | undefined {
 
 /**
  * Runs steps through the real bot code and database with a fake Telegram:
- * {steps: [{now?: ISO, update?: TelegramUpdate, tick?: true}], cleanup?: true}. Test chats (negative ids) only.
+ * {steps: [{now?: ISO, update?: TelegramUpdate, tick?: true}], cleanup?: true, files?: true}.
+ * Test chats (negative ids) only. Picture cards are really drawn; `files` returns them as base64.
  */
 async function simulate(body: any) {
   const steps: any[] = Array.isArray(body?.steps) ? body.steps : [];
   for (const step of steps) {
     if (step?.update && !(Number(chatOf(step.update)) < 0)) throw new Error('simulate accepts only test chats (negative ids)');
   }
-  const fake = createFakeTg({ startId: Number(body?.start_message_id) || 5000 });
+  const fake = createFakeTg({ startId: Number(body?.start_message_id) || 5000, keepFiles: Boolean(body?.files) });
   const results: any[] = [];
   for (const step of steps) {
     const at = step?.now ? new Date(step.now) : new Date();
-    const deps = { db, tg: fake.tg, now: () => at };
+    const deps = { db, tg: fake.tg, now: () => at, render: renderPng };
     const from = fake.calls.length;
     const result: Record<string, unknown> = {};
     try {
@@ -170,7 +172,7 @@ Deno.serve(async (req: Request) => {
       if (!safeEqual(given, l.secret)) return json({ ok: false, error: 'unauthorized' }, 401);
       const update = await req.json();
       try {
-        await handleUpdate(update, { db, tg: l.tg, now: () => new Date() });
+        await handleUpdate(update, { db, tg: l.tg, now: () => new Date(), render: renderPng });
       } catch (e) {
         // Answer 200 anyway: Telegram would otherwise resend the same update again and again.
         console.error('Update failed:', update?.update_id, e);

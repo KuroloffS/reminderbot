@@ -1,9 +1,13 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:@resvg/resvg-wasm@2.6.2": "2.6.2",
     "npm:@supabase/supabase-js@2.118.0": "2.118.0"
   },
   "npm": {
+    "@resvg/resvg-wasm@2.6.2": {
+      "integrity": "sha512-FqALmHI8D4o6lk/LRWDnhw95z5eO+eAa6ORjVg09YRR7BkcM6oPHU9uyC0gtQG5vpFLvgpeU4+zEAz2H8APHNw=="
+    },
     "@supabase/auth-js@2.118.0": {
       "integrity": "sha512-xWfPXyhS2KDSfAneMtI6p/tBnbdiz/5vaRKXEqUfzfC9WCniKr2Ds5o5G7RIGig0bom4z6wUY9zaV07WDVTfnQ==",
       "dependencies": [
@@ -58,6 +62,7 @@
   },
   "workspace": {
     "dependencies": [
+      "npm:@resvg/resvg-wasm@2.6.2",
       "npm:@supabase/supabase-js@2.118.0"
     ]
   }

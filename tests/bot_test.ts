@@ -43,7 +43,7 @@ Deno.test('onboarding, first note, next-day reminder, done', async () => {
     const noteId = await chat.say('4 noyabr. 1- leksion lugati. Sifatlarni skloneniyasi ni organdim.');
     c = chat.one('sendMessage');
     assertStringIncludes(c.params.text, '✅ Записано · 📅 сегодня, 4 нояб.');
-    assertStringIncludes(c.params.text, '«1- leksion lugati. Sifatlarni skloneniyasi ni organdim.»');
+    assertStringIncludes(c.params.text, '<blockquote>1- leksion lugati. Sifatlarni skloneniyasi ni organdim.</blockquote>');
     assertStringIncludes(c.params.text, 'Напомню повторить: завтра, 7 нояб., 11 нояб., 18 нояб., 4 дек.');
     assertEquals(buttons(c), [`X:${noteId}:1`]);
     assertEquals(c.params.reply_parameters.message_id, noteId);
@@ -266,7 +266,7 @@ Deno.test('German reminders and texts', async () => {
     await chat.say('gestern: Lektion 2, Dativ');
     const c = chat.one('sendMessage');
     assertStringIncludes(c.params.text, '✅ Gespeichert · 📅 gestern, 3. Nov.');
-    assertStringIncludes(c.params.text, '„Lektion 2, Dativ“');
+    assertStringIncludes(c.params.text, '<blockquote>Lektion 2, Dativ</blockquote>');
     // Yesterday's lesson logged after today's 07:00 reminder: first review tomorrow.
     assertStringIncludes(c.params.text, 'Ich erinnere dich: morgen, 6. Nov., 10. Nov., 17. Nov., 3. Dez.');
 

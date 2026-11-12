@@ -1,50 +1,24 @@
 // Handling of Telegram updates: commands, study notes, typed settings and button presses.
+import { earnedBadges, metricsOf } from './badges.ts';
+import { statsCardFor, weekCardFor } from './cards.ts';
 import { localDateFromUnix, type Ymd } from './dates.ts';
-import { DbError, type NewEntry, type User, type UserPatch } from './db.ts';
-import { COMMANDS, INTERVAL_PRESETS, isLang, type Lang, T, TZ_PRESETS } from './i18n.ts';
+import { DbError, type NewEntry, type Stats, type User, type UserPatch } from './db.ts';
+import { COMMANDS, INTERVAL_PRESETS, isLang, type Lang, MENU_VERSION, T, TZ_PRESETS } from './i18n.ts';
 import { parseIntervals, parseTime, splitEntries, timezoneCandidate } from './parse.ts';
 import * as R from './render.ts';
 import { scheduleReviews } from './schedule.ts';
-import { isNotModified, TgError } from './telegram.ts';
-import { type Deps, sendDigests } from './tick.ts';
+import { type Deps, describe, edit, editMarkup, react, send, sendCard } from './send.ts';
+import { EFFECT, TgError } from './telegram.ts';
+import { CAPTION_MAX, sendDigests } from './tick.ts';
 
 export type { Deps };
 
-const HTML = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
 const MAX_ITEMS = 50; // notes taken from one message
 const MAX_CONTENT = 2000; // characters per note
 
 const replyTo = (messageId: number) => ({ reply_parameters: { message_id: messageId, allow_sending_without_reply: true } });
 const minDate = (a: Ymd, b: Ymd) => (a < b ? a : b);
 const isPrivate = (chat: any) => chat?.type === 'private';
-
-async function send(deps: Deps, chatId: number, view: R.View, extra: Record<string, unknown> = {}) {
-  return await deps.tg('sendMessage', { chat_id: chatId, text: view.text, reply_markup: view.reply_markup, ...HTML, ...extra });
-}
-
-async function edit(deps: Deps, chatId: number, messageId: number, view: R.View) {
-  try {
-    return await deps.tg('editMessageText', {
-      chat_id: chatId,
-      message_id: messageId,
-      text: view.text,
-      reply_markup: view.reply_markup,
-      ...HTML,
-    });
-  } catch (e) {
-    if (isNotModified(e)) return null;
-    throw e;
-  }
-}
-
-/** Buttons only; a message that cannot be changed any more (400) is left as it is. */
-async function editMarkup(deps: Deps, chatId: number, messageId: number, markup?: R.Keyboard) {
-  try {
-    await deps.tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: markup });
-  } catch (e) {
-    if (!(e instanceof TgError && e.code === 400)) throw e;
-  }
-}
 
 async function setChatCommands(deps: Deps, chatId: number, lang: Lang) {
   try {
@@ -54,6 +28,30 @@ async function setChatCommands(deps: Deps, chatId: number, lang: Lang) {
     });
   } catch (e) {
     console.warn('setMyCommands failed:', e);
+  }
+}
+
+/** A chat keeps the command menu it got when its language was chosen; hand out the current one once. */
+async function refreshMenu(deps: Deps, user: User): Promise<User> {
+  if (!user.onboarded || user.menu_version === undefined || user.menu_version >= MENU_VERSION) return user;
+  await setChatCommands(deps, user.chat_id, user.lang);
+  return await deps.db.setUser(user.chat_id, { menu_version: MENU_VERSION }, deps.now());
+}
+
+/** Congratulates on badges earned since the last check: one message with a full-screen effect. */
+async function checkAwards(deps: Deps, user: User, known?: Stats): Promise<void> {
+  try {
+    const stats = known ?? (await deps.db.stats(user.chat_id, deps.now()));
+    if (!Array.isArray(stats.achievements)) return;
+    const have = new Set(stats.achievements);
+    const fresh = earnedBadges(metricsOf(stats)).map((b) => b.code).filter((code) => !have.has(code));
+    if (!fresh.length) return;
+    const claimed = await deps.db.claimAchievements(user.chat_id, fresh);
+    if (!claimed.new.length) return;
+    const effect = claimed.new.some((code) => code.startsWith('streak_')) ? EFFECT.fire : EFFECT.party;
+    await send(deps, user.chat_id, R.newAwards(user.lang, claimed.new), { message_effect_id: effect });
+  } catch (e) {
+    console.error('Badge check failed:', describe(e));
   }
 }
 
@@ -72,6 +70,7 @@ async function onMessage(msg: any, deps: Deps) {
   if (!isPrivate(msg.chat) || !msg.from || msg.from.is_bot) return;
   const now = deps.now();
   let user = await deps.db.touchUser(msg.chat.id, msg.from, now);
+  user = await refreshMenu(deps, user);
   const text = String(msg.text ?? msg.caption ?? '').trim();
   if (!text) {
     await send(deps, user.chat_id, { text: T[user.lang].onlyText });
@@ -111,10 +110,13 @@ async function onCommand(text: string, user: User, deps: Deps) {
       await send(deps, chatId, R.list(user, await deps.db.listEntries(chatId, 15)));
       return;
     case 'stats':
-      await send(deps, chatId, R.stats(user, await deps.db.stats(chatId, deps.now())));
+      await showStats(user, deps);
+      return;
+    case 'awards':
+      await showAwards(user, deps);
       return;
     case 'week':
-      await send(deps, chatId, R.weekly(user.lang, await deps.db.weekSummary(chatId, deps.now()), user.local_date));
+      await showWeek(user, deps);
       return;
     case 'settings':
       await send(deps, chatId, R.settings(user));
@@ -163,6 +165,51 @@ async function showToday(user: User, deps: Deps) {
   await sendDigests(deps, user.chat_id, user.lang, due.review_ids, { release: false });
 }
 
+/** Tells the user a picture is on its way and collects what the card shows; null means "send text only". */
+async function cardSvg(deps: Deps, chatId: number, build: () => Promise<string>): Promise<string | null> {
+  if (!deps.render) return null;
+  try {
+    await deps.tg('sendChatAction', { chat_id: chatId, action: 'upload_photo' }).catch(() => {});
+    return await build();
+  } catch (e) {
+    console.error('Card data failed:', describe(e));
+    return null;
+  }
+}
+
+/** /stats: the progress card (streak, activity calendar, totals) with the numbers as caption. */
+async function showStats(user: User, deps: Deps) {
+  const now = deps.now();
+  const stats = await deps.db.stats(user.chat_id, now);
+  const hasData = stats.entries_total > 0 || stats.reviews_done > 0;
+  const svg = hasData
+    ? await cardSvg(deps, user.chat_id, async () => statsCardFor(user, stats, await deps.db.activity(user.chat_id, 35, now)))
+    : null;
+  await sendCard(deps, user.chat_id, svg, R.stats(user, stats));
+  if (hasData) await checkAwards(deps, user, stats);
+}
+
+async function showAwards(user: User, deps: Deps) {
+  const stats = await deps.db.stats(user.chat_id, deps.now());
+  await send(deps, user.chat_id, R.awards(user, stats));
+  await checkAwards(deps, user, stats);
+}
+
+/** /week: the last 7 days as a chart, with the summary as caption. */
+async function showWeek(user: User, deps: Deps) {
+  const now = deps.now();
+  const summary = await deps.db.weekSummary(user.chat_id, now);
+  const hasData = summary.entries.length > 0 || summary.reviews_due > 0 || summary.week_days > 0;
+  const svg = hasData
+    ? await cardSvg(
+      deps,
+      user.chat_id,
+      async () => weekCardFor(user.lang, user.first_name, summary, await deps.db.activity(user.chat_id, 7, now)),
+    )
+    : null;
+  await sendCard(deps, user.chat_id, svg, R.weekly(user.lang, summary, user.local_date, svg ? CAPTION_MAX : undefined));
+}
+
 /** Notes from a message; dates are relative to `base` (today, or the day a forwarded message was written). */
 function buildEntries(text: string, base: Ymd, user: User): NewEntry[] {
   const afterReminderTime = user.local_time >= user.remind_time;
@@ -191,11 +238,17 @@ async function onStudyNote(msg: any, text: string, user: User, deps: Deps) {
   const saved = await deps.db.addEntries(user.chat_id, msg.message_id, entries);
   if (saved.duplicate) return; // Telegram delivered the same message again
 
+  // A reaction on the note itself: fire for something studied today (the streak lives), a pen for older days.
+  const studiedToday = saved.entries.some((e) => e.studied_on === user.local_date);
+  const reaction = react(deps, user.chat_id, msg.message_id, studiedToday ? '🔥' : '✍');
+
   const firstNote = !user.onboarded;
   if (firstNote) user = await deps.db.setUser(user.chat_id, { onboarded: true }, deps.now());
   const view = R.entriesSaved(user, saved.entries, msg.message_id, { hint: firstNote });
   const reply = await send(deps, user.chat_id, view, replyTo(msg.message_id));
   await deps.db.setReply(user.chat_id, msg.message_id, reply.message_id);
+  await reaction;
+  await checkAwards(deps, user);
 }
 
 /** An edited note is re-read; once reminders went out only the text of a single note changes. */
@@ -307,18 +360,31 @@ async function applyTyped(kind: R.PromptKind, text: string, user: User, deps: De
 // ---------------------------------------------------------------------------------------------
 
 async function onCallback(cq: any, deps: Deps) {
-  let toast: string | undefined;
+  // The button stops "loading" as soon as its result is known; follow-ups (reactions, badges) come after.
+  let answered = false;
+  const answer = async (text?: string) => {
+    if (answered) return;
+    answered = true;
+    await deps.tg('answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text } : {}) }).catch(() => {});
+  };
   try {
     const msg = cq.message;
     if (!msg || !isPrivate(msg.chat)) return;
-    const user = await deps.db.touchUser(msg.chat.id, cq.from, deps.now());
-    toast = await onButton(String(cq.data ?? ''), user, msg.message_id, deps);
+    let user = await deps.db.touchUser(msg.chat.id, cq.from, deps.now());
+    user = await refreshMenu(deps, user);
+    await answer(await onButton(String(cq.data ?? ''), user, msg.message_id, deps, answer));
   } finally {
-    await deps.tg('answerCallbackQuery', { callback_query_id: cq.id, ...(toast ? { text: toast } : {}) }).catch(() => {});
+    await answer();
   }
 }
 
-async function onButton(data: string, user: User, messageId: number, deps: Deps): Promise<string | undefined> {
+async function onButton(
+  data: string,
+  user: User,
+  messageId: number,
+  deps: Deps,
+  answer: (text?: string) => Promise<void>,
+): Promise<string | undefined> {
   const now = deps.now();
   const chatId = user.chat_id;
   const t = T[user.lang];
@@ -339,7 +405,7 @@ async function onButton(data: string, user: User, messageId: number, deps: Deps)
   switch (kind) {
     case 'L': {
       if (!isLang(a)) return;
-      const u = await set({ lang: a, pending: null });
+      const u = await set({ lang: a, pending: null, menu_version: MENU_VERSION });
       await setChatCommands(deps, chatId, a);
       await show(ctx === 'o' ? R.timePicker(u, 'o') : R.settings(u, savedNote(u)));
       return;
@@ -432,7 +498,19 @@ async function onButton(data: string, user: User, messageId: number, deps: Deps)
         return t.toastGone;
       }
       await show(R.digest(user.lang, result, result.streak?.current ?? 0));
-      return action === 'snooze' ? t.toastSnoozed : t.toastDone;
+      await answer(action === 'snooze' ? t.toastSnoozed : t.toastDone);
+      if (action !== 'snooze' && result.changed > 0) {
+        // Everything in this reminder is done: a little party on the message itself.
+        if (result.items.length > 0 && result.items.every((it) => it.status === 'done')) {
+          await react(deps, chatId, messageId, '🎉');
+        }
+        await checkAwards(deps, user);
+      }
+      return;
+    }
+    case 'A': {
+      await send(deps, chatId, R.awards(user, await deps.db.stats(chatId, now)));
+      return;
     }
     case 'X':
       await editMarkup(deps, chatId, messageId, R.deleteConfirmKeyboard(user.lang, Number(a), Number(b) || 1));

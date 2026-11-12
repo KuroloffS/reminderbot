@@ -5,7 +5,7 @@ import { COMMANDS, type Lang, T } from './i18n.ts';
 import type { Tg } from './telegram.ts';
 
 /** Bump when commands or descriptions change, so they are sent to Telegram again. */
-export const SETUP_VERSION = 1;
+export const SETUP_VERSION = 2;
 const RECHECK_MS = 60 * 60 * 1000;
 
 // [Telegram language_code (none = everyone else), bot language]

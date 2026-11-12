@@ -1,15 +1,15 @@
 // The every-minute job: morning review reminders, evening question, Sunday summary.
-import type { Db } from './db.ts';
+import { weekCardFor } from './cards.ts';
 import type { Lang } from './i18n.ts';
 import * as R from './render.ts';
-import { isBlocked, isTemporary, type Tg } from './telegram.ts';
-
-export type Deps = { db: Db; tg: Tg; now: () => Date };
+import { type Deps, describe, HTML, send, sendCard } from './send.ts';
+import { isBlocked, isTemporary, tgSafe } from './telegram.ts';
 
 /** Reviews per reminder message (more are split into several messages). */
 export const DIGEST_SIZE = 10;
 
-const quiet = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
+/** Photo captions hold 1024 characters; stay a little below. */
+export const CAPTION_MAX = 1000;
 
 /**
  * Sends the given reviews as reminder message(s) with ✅ buttons; returns how many messages went out.
@@ -29,12 +29,12 @@ export async function sendDigests(
     if (!view) break;
     const message = R.digest(lang, view);
     try {
-      const msg = await deps.tg('sendMessage', {
+      const msg = await tgSafe(deps.tg, 'sendMessage', {
         chat_id: chatId,
         text: message.text,
         reply_markup: message.reply_markup,
         disable_notification: i > 0,
-        ...quiet,
+        ...HTML,
       });
       await deps.db.digestSent(view.id, msg.message_id, now);
       sent++;
@@ -47,8 +47,6 @@ export async function sendDigests(
 }
 
 export type TickResult = { digests: number; nudges: number; weekly: number; failed: number; errors: string[] };
-
-const describe = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function runTick(deps: Deps, opts: { test: boolean }): Promise<TickResult> {
   const now = deps.now();
@@ -72,18 +70,18 @@ export async function runTick(deps: Deps, opts: { test: boolean }): Promise<Tick
 
   for (const n of claim.nudges) {
     try {
-      const view = R.nudge(n.lang);
-      await deps.tg('sendMessage', { chat_id: n.chat_id, text: view.text, reply_markup: view.reply_markup, ...quiet });
+      await send(deps, n.chat_id, R.nudge(n.lang));
       out.nudges++;
     } catch (e) {
       await failed(n.chat_id, e, 'nudge');
     }
   }
 
+  // The weekly summary is a picture (chart of the week) with the text as its caption.
   for (const w of claim.weekly) {
     try {
-      const view = R.weekly(w.lang, w.summary, w.summary.to);
-      await deps.tg('sendMessage', { chat_id: w.chat_id, text: view.text, ...quiet });
+      const svg = deps.render && w.activity ? weekCardFor(w.lang, w.first_name, w.summary, w.activity) : null;
+      await sendCard(deps, w.chat_id, svg, R.weekly(w.lang, w.summary, w.summary.to, svg ? CAPTION_MAX : undefined));
       out.weekly++;
     } catch (e) {
       await failed(w.chat_id, e, 'weekly');

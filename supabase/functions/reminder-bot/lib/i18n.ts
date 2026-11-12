@@ -67,11 +67,15 @@ export function fmtOffset(minutes: number): string {
   return `UTC${sign}${h}${m ? `:${String(m).padStart(2, '0')}` : ''}`;
 }
 
+/** Bump when COMMANDS change: chats that chose a language get their menu again (see refreshMenu in bot.ts). */
+export const MENU_VERSION = 2;
+
 export const COMMANDS: Record<Lang, [string, string][]> = {
   ru: [
     ['today', 'Что повторить сегодня'],
     ['list', 'Мои записи'],
     ['stats', 'Статистика и серия'],
+    ['awards', 'Награды'],
     ['week', 'Итоги недели'],
     ['settings', 'Настройки'],
     ['help', 'Как пользоваться'],
@@ -80,6 +84,7 @@ export const COMMANDS: Record<Lang, [string, string][]> = {
     ['today', 'Heute wiederholen'],
     ['list', 'Meine Einträge'],
     ['stats', 'Statistik & Serie'],
+    ['awards', 'Abzeichen'],
     ['week', 'Wochenrückblick'],
     ['settings', 'Einstellungen'],
     ['help', "So funktioniert's"],
@@ -107,6 +112,7 @@ const ru = {
     '/today — что повторить сегодня\n' +
     '/list — мои записи\n' +
     '/stats — статистика и серия 🔥\n' +
+    '/awards — награды 🏅\n' +
     '/week — итоги недели\n' +
     '/settings — язык, время, интервалы',
   defaultsHint: (time: string) => `⏰ Напоминания приходят в ${time}. Изменить: /settings`,
@@ -118,7 +124,6 @@ const ru = {
   willRemind: (dates: string) => `🔁 Напомню повторить: ${dates}`,
   historyOnly: '📦 Сохранено в истории — все повторения уже в прошлом.',
   historyShort: '📦 в истории',
-  quote: (s: string) => `«${s}»`,
   btnDelete: '🗑 Удалить',
   btnDeleteAll: '🗑 Удалить все',
   btnYesDelete: '🗑 Да, удалить',
@@ -150,8 +155,8 @@ const ru = {
   listTitle: '📚 <b>Ваши записи</b>',
   listTitlePart: (shown: number, total: number) => `📚 <b>Последние записи</b> (${shown} из ${total})`,
   listEmpty: 'Пока нет записей. Напишите, что вы изучили ✍️',
-  listNext: (date: string, done: number, total: number) => `🔁 след. ${date} · ✅ ${done}/${total}`,
-  listFinished: (done: number, total: number) => `🏁 повторения пройдены · ✅ ${done}/${total}`,
+  listNext: (date: string) => `след. ${date}`,
+  listFinished: '🏁 план завершён',
   listNoReviews: '📦 без повторений',
   listFooter: 'Удалить запись — нажмите /del_… под ней.',
 
@@ -163,6 +168,17 @@ const ru = {
   statsQueue: (today: number, upcoming: number) => `⏳ На сегодня: ${today} · запланировано: ${upcoming}`,
   statsNext: (date: string) => `🗓 Следующее повторение: ${date}`,
   statsFirst: (date: string) => `📅 Первая запись: ${date}`,
+  statsMastered: (n: number) => `🎓 Закреплено тем: ${n}`,
+
+  awardsTitle: (have: number, total: number) => `🏅 <b>Награды</b> · ${have} из ${total}`,
+  awardGroups: { streak: 'Серия дней', entries: 'Темы', reviews: 'Повторения', mastered: 'Закреплённые темы' },
+  awardsGroupDone: '✨ все получены',
+  awardsNote: '🎓 Тема закреплена, когда пройдено её последнее повторение.',
+  newAward: '🏅 <b>Новая награда!</b>',
+  newAwards: (n: number) => `🏅 <b>Новые награды: ${n}</b>`,
+  awardsHint: 'Все награды: /awards',
+  btnAwards: (have: number, total: number) => `🏅 Награды ${have}/${total}`,
+  masteredMark: 'тема закреплена',
 
   weekTitle: (from: string, to: string) => `📊 <b>Итоги недели</b> · ${from} – ${to}`,
   weekEntries: (n: number) => `📚 Новых тем: ${n}`,
@@ -241,6 +257,7 @@ const de: Texts = {
     '/today – heute wiederholen\n' +
     '/list – meine Einträge\n' +
     '/stats – Statistik & Serie 🔥\n' +
+    '/awards – Abzeichen 🏅\n' +
     '/week – Wochenrückblick\n' +
     '/settings – Sprache, Uhrzeit, Intervalle',
   defaultsHint: (time: string) => `⏰ Die Erinnerung kommt um ${time} Uhr. Ändern: /settings`,
@@ -252,7 +269,6 @@ const de: Texts = {
   willRemind: (dates: string) => `🔁 Ich erinnere dich: ${dates}`,
   historyOnly: '📦 Im Verlauf gespeichert – alle Wiederholungen liegen schon in der Vergangenheit.',
   historyShort: '📦 im Verlauf',
-  quote: (s: string) => `„${s}“`,
   btnDelete: '🗑 Löschen',
   btnDeleteAll: '🗑 Alle löschen',
   btnYesDelete: '🗑 Ja, löschen',
@@ -286,8 +302,8 @@ const de: Texts = {
   listTitle: '📚 <b>Deine Einträge</b>',
   listTitlePart: (shown: number, total: number) => `📚 <b>Letzte Einträge</b> (${shown} von ${total})`,
   listEmpty: 'Noch keine Einträge. Schreib, was du gelernt hast ✍️',
-  listNext: (date: string, done: number, total: number) => `🔁 nächste ${date} · ✅ ${done}/${total}`,
-  listFinished: (done: number, total: number) => `🏁 Wiederholungen abgeschlossen · ✅ ${done}/${total}`,
+  listNext: (date: string) => `nächste ${date}`,
+  listFinished: '🏁 Plan abgeschlossen',
   listNoReviews: '📦 ohne Wiederholungen',
   listFooter: 'Eintrag löschen – tippe auf /del_… darunter.',
 
@@ -299,6 +315,17 @@ const de: Texts = {
   statsQueue: (today: number, upcoming: number) => `⏳ Heute: ${today} · geplant: ${upcoming}`,
   statsNext: (date: string) => `🗓 Nächste Wiederholung: ${date}`,
   statsFirst: (date: string) => `📅 Erster Eintrag: ${date}`,
+  statsMastered: (n: number) => `🎓 Gefestigte Themen: ${n}`,
+
+  awardsTitle: (have: number, total: number) => `🏅 <b>Abzeichen</b> · ${have} von ${total}`,
+  awardGroups: { streak: 'Serie', entries: 'Themen', reviews: 'Wiederholungen', mastered: 'Gefestigte Themen' },
+  awardsGroupDone: '✨ alle erreicht',
+  awardsNote: '🎓 Ein Thema ist gefestigt, wenn seine letzte Wiederholung erledigt ist.',
+  newAward: '🏅 <b>Neues Abzeichen!</b>',
+  newAwards: (n: number) => `🏅 <b>Neue Abzeichen: ${n}</b>`,
+  awardsHint: 'Alle Abzeichen: /awards',
+  btnAwards: (have: number, total: number) => `🏅 Abzeichen ${have}/${total}`,
+  masteredMark: 'Thema gefestigt',
 
   weekTitle: (from: string, to: string) => `📊 <b>Wochenrückblick</b> · ${from} – ${to}`,
   weekEntries: (n: number) => `📚 Neue Themen: ${n}`,

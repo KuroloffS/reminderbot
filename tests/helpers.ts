@@ -1,4 +1,4 @@
-// Test helpers: a fresh Postgres database with the real migration, a node-postgres transport for
+// Test helpers: a fresh Postgres database with the real migrations, a node-postgres transport for
 // the bot_* functions, a fake Telegram and builders for Telegram updates.
 //
 // Needs a local Postgres (scripts/local-db.sh start). Override with TEST_DATABASE_URL.
@@ -9,7 +9,16 @@ import { runTick } from '../supabase/functions/reminder-bot/lib/tick.ts';
 import { createFakeTg, type FakeCall, type TgError } from '../supabase/functions/reminder-bot/lib/telegram.ts';
 
 const ADMIN_URL = Deno.env.get('TEST_DATABASE_URL') ?? 'postgres://postgres@127.0.0.1:54329/postgres';
-const MIGRATION = new URL('../supabase/migrations/20261104102529_reminder_bot.sql', import.meta.url);
+const MIGRATIONS_DIR = new URL('../supabase/migrations/', import.meta.url);
+
+/** Every migration in order, except the pg_cron ones (they need extensions a plain Postgres lacks). */
+async function migrations(): Promise<string[]> {
+  const names: string[] = [];
+  for await (const entry of Deno.readDir(MIGRATIONS_DIR)) {
+    if (entry.isFile && entry.name.endsWith('.sql') && !entry.name.includes('_cron')) names.push(entry.name);
+  }
+  return Promise.all(names.sort().map((name) => Deno.readTextFile(new URL(name, MIGRATIONS_DIR))));
+}
 
 /** Calls public.<fn>(name => $1::type, …) with each argument cast to the declared parameter type. */
 export function pgCall(pool: pg.Pool): Call {
@@ -56,7 +65,7 @@ export async function createTestDb(): Promise<TestDb> {
   const url = new URL(ADMIN_URL);
   url.pathname = `/${name}`;
   const pool = new pg.Pool({ connectionString: url.toString(), max: 3 });
-  await pool.query(await Deno.readTextFile(MIGRATION));
+  for (const sql of await migrations()) await pool.query(sql);
   const call = pgCall(pool);
   return {
     db: createDb(call),
@@ -75,6 +84,11 @@ export async function createTestDb(): Promise<TestDb> {
 let nextUpdateId = 1;
 let nextMessageId = 100;
 
+const AMBIENT = new Set(['answerCallbackQuery', 'setMyCommands', 'setMessageReaction', 'sendChatAction']);
+
+/** Starts like a PNG file; enough for the fake Telegram to recognise a picture. */
+export const FAKE_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+
 export type From = { id: number; first_name?: string; language_code?: string };
 
 /** One simulated user talking to the bot, with a controllable clock. */
@@ -86,17 +100,27 @@ export class Chat {
   now: Date;
   private seen = 0;
   failWith: ((call: FakeCall) => TgError | null) | null = null;
+  /** Picture cards: undefined = no renderer (text only), otherwise a stand-in for lib/raster.ts. */
+  render: ((svg: string) => Promise<Uint8Array>) | undefined;
+  /** The SVGs handed to the renderer. */
+  readonly drawn: string[] = [];
 
-  constructor(db: Db, chatId: number, opts: { lang?: string; now?: string } = {}) {
+  constructor(db: Db, chatId: number, opts: { lang?: string; now?: string; cards?: boolean } = {}) {
     this.db = db;
     this.chatId = chatId;
     this.lang = opts.lang ?? 'ru';
     this.now = new Date(opts.now ?? '2026-11-04T05:00:00Z');
     this.fake = createFakeTg({ startId: 10_000, fail: (c) => this.failWith?.(c) ?? null });
+    if (opts.cards) {
+      this.render = (svg) => {
+        this.drawn.push(svg);
+        return Promise.resolve(FAKE_PNG);
+      };
+    }
   }
 
   get deps() {
-    return { db: this.db, tg: this.fake.tg, now: () => this.now };
+    return { db: this.db, tg: this.fake.tg, now: () => this.now, render: this.render };
   }
 
   at(iso: string) {
@@ -164,9 +188,13 @@ export class Chat {
     return out;
   }
 
-  /** The only message-producing call since last time (sendMessage / editMessageText). */
+  /**
+   * The only message-producing call since last time (sendMessage / editMessageText / sendPhoto).
+   * Decorations are left out: reactions, "sending photo…", menu updates, and badge congratulations
+   * (the messages with a full-screen effect) – tests about those read calls() themselves.
+   */
   one(method?: string): FakeCall {
-    const calls = this.calls().filter((c) => c.method !== 'answerCallbackQuery' && c.method !== 'setMyCommands');
+    const calls = this.calls().filter((c) => !AMBIENT.has(c.method) && !c.params.message_effect_id);
     const picked = method ? calls.filter((c) => c.method === method) : calls;
     if (picked.length !== 1) {
       throw new Error(`expected one ${method ?? 'call'}, got ${calls.map((c) => c.method).join(', ') || 'none'}`);
